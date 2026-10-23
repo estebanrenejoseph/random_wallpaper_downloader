@@ -1,23 +1,24 @@
 #!/usr/bin/env python3
 
 """
-image_v5.py - multi-source image viewer
+random_image_viewer.py - multi-source image viewer
 
 Architecture :
     API/source -> bytes en RAM -> GdkPixbuf -> GTK
 
-Aucun fichier image temporaire n'est créé.
-Le bouton « Télécharger » écrit le fichier uniquement à la demande.
-
 Sources :
-    nasa
-    waifu
-    wallhaven
-    danbooru
-    nekos
+	nasa
+	waifu
+	wallhaven
+	danbooru
+	nekos
 
-
-python python-requests python-gobject gtk3 gdk-pixbuf2
+Requirement : 
+	python 
+	python-requests 
+	python-gobject 
+	gtk3 
+	gdk-pixbuf2
 """
 
 import argparse
@@ -40,8 +41,8 @@ from gi.repository import GLib, GdkPixbuf, Gtk
 
 
 HTTP_TIMEOUT = 30
-APP_NAME = "Image Viewer v5"
-USER_AGENT = "image-viewer-v5/1.0 (local desktop application)"
+APP_NAME = "Random Image Viewer"
+USER_AGENT = "random-image-viewer(local desktop application)"
 
 
 @dataclass
@@ -567,7 +568,7 @@ class ImageViewer:
         initial_rating="safe",
         initial_categories=None,
         auto_reload=False,
-        timer_seconds=60,
+        timer_seconds=30,
     ):
         self.source = source
         self.current_image = None
@@ -1381,147 +1382,17 @@ class ImageViewer:
         self.active_request_id = -1
         Gtk.main_quit()
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
-
-def build_parser():
-    parser = argparse.ArgumentParser(
-        description=(
-            "Image Viewer v5"
-        )
-    )
-
-    parser.add_argument(
-        "source",
-        nargs="?",
-        default="nasa",
-        choices=list(SOURCES.keys()),
-        help="Source initiale (défaut : nasa)",
-    )
-
-    parser.add_argument(
-        "--tag",
-        action="append",
-        default=[],
-        help=(
-            "Tag initial ; répétable. Utilisez des guillemets pour un tag "
-            'contenant des espaces, par ex. --tag "gothic lolita".'
-        ),
-    )
-
-    parser.add_argument(
-        "--content",
-        choices=("sfw", "nsfw", "all"),
-        default="sfw",
-        help="Waifu.im ; Nekos.moe accepte SFW/NSFW seulement",
-    )
-
-    parser.add_argument(
-        "--purity",
-        choices=tuple(WALLHAVEN_PURITY.keys()),
-        default="sfw",
-        help="Wallhaven : sfw, sketchy ou sfw+sketchy",
-    )
-
-    parser.add_argument(
-        "--category",
-        action="append",
-        choices=("general", "anime", "people"),
-        default=[],
-        help="Wallhaven ; répétable",
-    )
-
-    parser.add_argument(
-        "--rating",
-        choices=("safe", "questionable", "explicit", "all"),
-        default="safe",
-        help="Danbooru",
-    )
-
-    parser.add_argument(
-        "--list-tags",
-        action="store_true",
-        help="Lister les tags Waifu.im et quitter",
-    )
-
-    parser.add_argument(
-        "--auto-reload",
-        action="store_true",
-        help="Activer l'autoreload au démarrage",
-    )
-
-    parser.add_argument(
-        "--timer",
-        type=int,
-        default=60,
-        help="Intervalle autoreload en secondes (défaut : 60)",
-    )
-
-    return parser
-
-
-def validate_args(args):
-    if args.timer < 1:
-        raise ValueError("--timer doit être supérieur ou égal à 1 seconde.")
-
-    if args.source == "nasa":
-        if args.tag or args.category or args.content != "sfw" or args.purity != "sfw" or args.rating != "safe":
-            raise ValueError("NASA n'accepte pas ces filtres.")
-
-    elif args.source == "waifu":
-        if args.category or args.purity != "sfw" or args.rating != "safe":
-            raise ValueError("Waifu.im utilise --content et --tag.")
-
-    elif args.source == "wallhaven":
-        if args.content != "sfw" or args.rating != "safe":
-            raise ValueError("Wallhaven utilise --purity, --category et --tag.")
-
-    elif args.source == "danbooru":
-        if args.content != "sfw" or args.purity != "sfw" or args.category:
-            raise ValueError("Danbooru utilise --rating et --tag.")
-        if len(args.tag) > 2:
-            raise ValueError("Danbooru limite les recherches anonymes à 2 tags.")
-
-    elif args.source == "nekos":
-        if args.content == "all":
-            raise ValueError(
-                "Nekos.moe : le mode 'all' n'est pas exposé ici ; "
-                "utilisez --content sfw ou --content nsfw."
-            )
-        if args.category or args.purity != "sfw" or args.rating != "safe":
-            raise ValueError("Nekos.moe utilise --content et --tag.")
-
-
 def main():
-    parser = build_parser()
-    args = parser.parse_args()
-
-    if args.list_tags:
-        if args.source != "waifu":
-            parser.error("--list-tags fonctionne uniquement avec la source waifu.")
-        try:
-            list_waifu_tags()
-            return 0
-        except Exception as exc:
-            print(f"Erreur : {exc}", file=sys.stderr)
-            return 1
-
-    try:
-        validate_args(args)
-    except ValueError as exc:
-        parser.error(str(exc))
 
     viewer = ImageViewer(
-        source=args.source,
-        initial_tags=args.tag,
-        initial_content=args.content,
-        initial_purity=args.purity,
-        initial_rating=args.rating,
-        initial_categories=args.category,
-        auto_reload=args.auto_reload,
-        timer_seconds=args.timer,
+        source="nasa",
+        initial_tags=None,
+        initial_content="sfw",
+        initial_purity="sfw",
+        initial_rating="safe",
+        initial_categories=None,
+        auto_reload=False,
+        timer_seconds=30
     )
 
     # Keep the instance alive for the GTK event loop.
