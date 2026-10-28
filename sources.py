@@ -422,7 +422,30 @@ def source_reddit(
     if purity != "sfw" or rating != "safe" or categories:
         raise ValueError("For Reddit, use only tags (subreddits) for target communities.")
 
-    default_subreddits = ["wallpapers", "wallpaper", "earthporn", "art"]
+   # Categorized list of default subreddits used when no search tags are specified
+    default_subreddits = [
+        # General & Fine Art
+        "wallpapers",
+        "wallpaper",
+        "art",
+        # Nature & Astronomy
+        "earthporn",
+        "spaceporn",
+        # Anime & Japanese Illustration
+        "animewallpapers",
+        "AnimeWallpaper",
+        "awwnime",
+        # Video Games
+        "gamewallpapers",
+        "gamerwalls",
+        # Linux, Unix & Tech / Customization
+        "unixporn",
+        # Sci-Fi, Cyberpunk & Fantasy Art
+        "Cyberpunk",
+        "ImaginaryLandscapes",
+        "ImaginaryMindscapes",
+    ]
+
     subreddits = [t.strip().lstrip("r/").lstrip("/") for t in (tags or []) if t.strip()]
     if not subreddits:
         subreddits = default_subreddits
@@ -502,6 +525,360 @@ def source_reddit(
     }
 
 # ---------------------------------------------------------------------------
+# Konachan Source
+# ---------------------------------------------------------------------------
+
+KONACHAN_RATING: Dict[str, str] = {
+    "safe": "rating:safe",
+    "questionable": "rating:questionable",
+    "explicit": "rating:explicit",
+}
+
+
+def source_konachan(
+    tags: Optional[List[str]] = None,
+    content: str = "sfw",
+    purity: str = "sfw",
+    rating: str = "safe",
+    categories: Optional[List[str]] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
+    """Queries Konachan API for high-resolution anime wallpapers.
+
+    Args:
+        tags: Optional list of keyword search tags.
+        content: Content mode parameter (must be 'sfw').
+        purity: Purity filter parameter (must be 'sfw').
+        rating: Rating filter parameter ('safe', 'questionable', 'explicit', 'all').
+        categories: Category parameter (unsupported by Konachan).
+
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: Tuple containing image URL, post identifier,
+            and metadata dictionary (rating, score, dimensions, tags).
+
+    Raises:
+        ValueError: If unsupported parameters are passed.
+        RuntimeError: If no posts match the query or no image URL is found.
+    """
+    if content != "sfw" or purity != "sfw" or categories:
+        raise ValueError("For Konachan, use rating and tags options.")
+    if rating not in {"safe", "questionable", "explicit", "all"}:
+        raise ValueError("Invalid Konachan rating parameter.")
+
+    query_parts: List[str] = [tag.strip() for tag in (tags or []) if tag.strip()]
+
+    if rating != "all" and rating in KONACHAN_RATING:
+        query_parts.append(KONACHAN_RATING[rating])
+
+    # Leverage Moebooru's native random ordering
+    query_parts.append("order:random")
+
+    params: Dict[str, Any] = {
+        "tags": " ".join(query_parts),
+        "limit": 50,
+    }
+
+    data: Any = http_get_json(
+        "https://konachan.com/post.json",
+        params=params,
+    )
+
+    posts: List[Dict[str, Any]] = data if isinstance(data, list) else []
+    if not posts:
+        raise RuntimeError("Konachan found no images matching these criteria.")
+
+    item: Dict[str, Any] = random.choice(posts)
+    image_url: Optional[str] = (
+        item.get("file_url")
+        or item.get("jpeg_url")
+        or item.get("sample_url")
+    )
+
+    if image_url and image_url.startswith("//"):
+        image_url = "https:" + image_url
+
+    if not image_url:
+        raise RuntimeError("Konachan returned post metadata but no usable image URL.")
+
+    return image_url, f"Konachan #{item.get('id', '?')}", {
+        "rating": item.get("rating"),
+        "score": item.get("score"),
+        "width": item.get("width"),
+        "height": item.get("height"),
+        "tags": item.get("tags", ""),
+    }
+
+# ---------------------------------------------------------------------------
+# Safebooru Source
+# ---------------------------------------------------------------------------
+
+
+def source_safebooru(
+    tags: Optional[List[str]] = None,
+    content: str = "sfw",
+    purity: str = "sfw",
+    rating: str = "safe",
+    categories: Optional[List[str]] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
+    """Queries Safebooru API for SFW anime artwork and wallpapers.
+
+    Args:
+        tags: Optional list of keyword search tags.
+        content: Content mode parameter (must be 'sfw').
+        purity: Purity filter parameter (must be 'sfw').
+        rating: Rating filter parameter (must be 'safe').
+        categories: Category parameter (unsupported by Safebooru).
+
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: Tuple containing image URL, post identifier,
+            and metadata dictionary (score, dimensions, tags).
+
+    Raises:
+        ValueError: If unsupported non-SFW parameters are passed.
+        RuntimeError: If no posts match the query or no image URL is found.
+    """
+    if content != "sfw" or purity != "sfw" or rating != "safe" or categories:
+        raise ValueError("Safebooru is an SFW-only source and does not support content or rating filters.")
+
+    user_tags: List[str] = [tag.strip() for tag in (tags or []) if tag.strip()]
+
+    params: Dict[str, Any] = {
+        "page": "dapi",
+        "s": "post",
+        "q": "index",
+        "json": 1,
+        "limit": 50,
+    }
+
+    if user_tags:
+        params["tags"] = " ".join(user_tags)
+
+    data: Any = http_get_json(
+        "https://safebooru.org/index.php",
+        params=params,
+    )
+
+    posts: List[Dict[str, Any]] = data if isinstance(data, list) else []
+    if not posts:
+        raise RuntimeError("Safebooru found no images matching these criteria.")
+
+    item: Dict[str, Any] = random.choice(posts)
+
+    image_url: Optional[str] = item.get("file_url")
+    if not image_url and item.get("directory") and item.get("image"):
+        image_url = f"https://safebooru.org/images/{item['directory']}/{item['image']}"
+
+    if image_url and image_url.startswith("//"):
+        image_url = "https:" + image_url
+    elif image_url and image_url.startswith("/"):
+        image_url = "https://safebooru.org" + image_url
+
+    if not image_url:
+        raise RuntimeError("Safebooru returned post metadata but no usable image URL.")
+
+    return image_url, f"Safebooru #{item.get('id', '?')}", {
+        "rating": "s",
+        "score": item.get("score"),
+        "width": item.get("width"),
+        "height": item.get("height"),
+        "tags": item.get("tags", ""),
+    }
+
+# ---------------------------------------------------------------------------
+# Wikimedia Commons Source
+# ---------------------------------------------------------------------------
+
+
+def source_wikimedia(
+    tags: Optional[List[str]] = None,
+    content: str = "sfw",
+    purity: str = "sfw",
+    rating: str = "safe",
+    categories: Optional[List[str]] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
+    """Queries Wikimedia Commons API for public domain and Creative Commons images.
+
+    Args:
+        tags: Optional list of keyword search terms.
+        content: Content mode parameter (must be 'sfw').
+        purity: Purity filter parameter (must be 'sfw').
+        rating: Rating filter parameter (must be 'safe').
+        categories: Category list (unsupported by Wikimedia API).
+
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: Tuple containing image URL, page title,
+            and metadata dictionary (dimensions, license, author).
+
+    Raises:
+        ValueError: If unsupported non-SFW filter parameters are passed.
+        RuntimeError: If no images match the search criteria or response is invalid.
+    """
+    if purity != "sfw" or rating != "safe" or categories or content != "sfw":
+        raise ValueError("For Wikimedia Commons, use keyword tags for search queries.")
+
+    user_tags: List[str] = [tag.strip() for tag in (tags or []) if tag.strip()]
+    search_query = " ".join(user_tags) if user_tags else "landscape"
+
+    params: Dict[str, Any] = {
+        "action": "query",
+        "generator": "search",
+        "gsrsearch": search_query,
+        "gsrnamespace": 6,
+        "gsrlimit": 50,
+        "prop": "imageinfo",
+        "iiprop": "url|size|mime|extmetadata",
+        "format": "json",
+    }
+
+    data: Any = http_get_json(
+        "https://commons.wikimedia.org/w/api.php",
+        params=params,
+    )
+
+    pages: Dict[str, Any] = data.get("query", {}).get("pages", {}) if isinstance(data, dict) else {}
+    if not pages:
+        raise RuntimeError(f"Wikimedia Commons found no items matching '{search_query}'.")
+
+    valid_items: List[Dict[str, Any]] = []
+    valid_mimes = {"image/jpeg", "image/png", "image/webp"}
+
+    for page in pages.values():
+        image_info_list = page.get("imageinfo", [])
+        if not image_info_list:
+            continue
+
+        info = image_info_list[0]
+        url = info.get("url", "")
+        mime = info.get("mime", "").lower()
+
+        clean_url = url.split("?")[0].lower()
+        is_valid_ext = clean_url.endswith((".jpg", ".jpeg", ".png", ".webp"))
+        is_valid_mime = mime in valid_mimes
+
+        if url and (is_valid_mime or is_valid_ext):
+            valid_items.append({
+                "url": url,
+                "title": page.get("title", "Wikimedia Commons File").replace("File:", ""),
+                "width": info.get("width"),
+                "height": info.get("height"),
+                "extmetadata": info.get("extmetadata", {}),
+            })
+
+    if not valid_items:
+        raise RuntimeError(f"Wikimedia Commons returned files for '{search_query}', but no raster images (JPG/PNG).")
+
+    item = random.choice(valid_items)
+    image_url = item["url"]
+    clean_title = item["title"]
+
+    metadata_obj = item.get("extmetadata", {})
+    artist = metadata_obj.get("Artist", {}).get("value", "Unknown")
+    license_name = metadata_obj.get("LicenseShortName", {}).get("value", "Public Domain / CC")
+
+    return image_url, f"Wikimedia — {clean_title}", {
+        "width": item.get("width"),
+        "height": item.get("height"),
+        "artist": artist,
+        "license": license_name,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Hubble & Webb Space Telescopes Source
+# ---------------------------------------------------------------------------
+
+
+def source_hubble(
+    tags: Optional[List[str]] = None,
+    content: str = "sfw",
+    purity: str = "sfw",
+    rating: str = "safe",
+    categories: Optional[List[str]] = None,
+) -> Tuple[str, str, Dict[str, Any]]:
+    """Queries NASA's public Image Library for Hubble & James Webb Space Telescope imagery.
+
+    Args:
+        tags: Optional list of keyword search terms (e.g. ['nebula', 'galaxy']).
+        content: Content mode parameter (must be 'sfw').
+        purity: Purity filter parameter (must be 'sfw').
+        rating: Rating filter parameter (must be 'safe').
+        categories: Category list (unsupported by NASA Image API).
+
+    Returns:
+        Tuple[str, str, Dict[str, Any]]: Tuple containing image URL, image title,
+            and metadata dictionary (NASA ID, date, center, keywords).
+
+    Raises:
+        ValueError: If unsupported non-SFW filter parameters are passed.
+        RuntimeError: If no images match the search query or response is invalid.
+    """
+    if purity != "sfw" or rating != "safe" or categories or content != "sfw":
+        raise ValueError("For Hubble/Webb source, use keyword tags for search queries.")
+
+    user_tags: List[str] = [tag.strip() for tag in (tags or []) if tag.strip()]
+
+    # Pick one term to prevent strict AND queries on NASA API
+    if user_tags:
+        search_query = random.choice(user_tags)
+    else:
+        search_query = random.choice(["hubble", "webb", "nebula", "galaxy", "deep field", "star"])
+
+    params: Dict[str, Any] = {
+        "q": search_query,
+        "media_type": "image",
+    }
+
+    data: Any = http_get_json(
+        "https://images-api.nasa.gov/search",
+        params=params,
+    )
+
+    items: List[Dict[str, Any]] = data.get("collection", {}).get("items", []) if isinstance(data, dict) else []
+
+    # Fallback to 'hubble' if the query returned zero items
+    if not items and user_tags:
+        data = http_get_json("https://images-api.nasa.gov/search", params={"q": "hubble", "media_type": "image"})
+        items = data.get("collection", {}).get("items", []) if isinstance(data, dict) else []
+
+    if not items:
+        raise RuntimeError("NASA Space Telescope Library found no images matching these criteria.")
+
+    valid_items: List[Tuple[str, Dict[str, Any]]] = []
+    for item in items:
+        item_data_list = item.get("data", [])
+        if not item_data_list:
+            continue
+        item_data = item_data_list[0]
+
+        links = item.get("links", [])
+        image_url = None
+        for link in links:
+            href = link.get("href", "")
+            clean_href = href.split("?")[0].lower()
+            if clean_href.endswith((".jpg", ".jpeg", ".png", ".webp")):
+                image_url = href
+                break
+
+        if not image_url and links:
+            image_url = links[0].get("href")
+
+        if image_url:
+            valid_items.append((image_url, item_data))
+
+    if not valid_items:
+        raise RuntimeError("NASA Library returned search results, but no direct image URLs were valid.")
+
+    selected_url, selected_meta = random.choice(valid_items)
+    nasa_id = selected_meta.get("nasa_id", "?")
+    title = selected_meta.get("title", "NASA Space Imagery")
+
+    return selected_url, f"NASA Telescope #{nasa_id} — {title}", {
+        "nasa_id": nasa_id,
+        "date_created": selected_meta.get("date_created"),
+        "center": selected_meta.get("center"),
+        "keywords": selected_meta.get("keywords", []),
+    }
+
+# ---------------------------------------------------------------------------
 # Source Registry
 # ---------------------------------------------------------------------------
 
@@ -512,11 +889,23 @@ SOURCES: Dict[str, SourceSpec] = {
         False,
         "NASA APOD — Astronomy Picture of the Day",
     ),
+    "hubble": SourceSpec(
+        "Hubble & James Webb",
+        source_hubble,
+        True,
+        "Deep space imagery from NASA's Space Telescope Library (No API key required)",
+    ),
     "wallhaven": SourceSpec(
         "Wallhaven",
         source_wallhaven,
         True,
         "Wallpapers with tags, categories, and purity filters",
+    ),
+    "safebooru": SourceSpec(
+        "Safebooru",
+        source_safebooru,
+        True,
+        "Safe-for-work anime image board with keyword tag search",
     ),
     "danbooru": SourceSpec(
         "Danbooru",
@@ -524,11 +913,23 @@ SOURCES: Dict[str, SourceSpec] = {
         True,
         "Anime artwork database with tags and content rating filters",
     ),
+    "konachan": SourceSpec(
+        "Konachan",
+        source_konachan,
+        True,
+        "High-resolution anime wallpaper board with tag and rating filters",
+    ),
     "nekos": SourceSpec(
         "Nekos.moe",
         source_nekos,
         True,
         "Anime image community with tag and SFW/NSFW filters",
+    ),
+    "wikimedia": SourceSpec(
+        "Wikimedia Commons",
+        source_wikimedia,
+        True,
+        "Public domain and Creative Commons media repository from Wikimedia (No API key required)",
     ),
     "reddit": SourceSpec(
         "Reddit",

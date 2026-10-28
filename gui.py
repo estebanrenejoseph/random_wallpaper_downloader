@@ -1,4 +1,5 @@
 # gui.py
+
 import mimetypes
 import re
 import shlex
@@ -19,22 +20,40 @@ from sources import SOURCES, WALLHAVEN_PURITY
 APP_NAME = "Random Wallpaper Viewer"
 
 def pixbuf_from_bytes(image_bytes):
+    """
+    Converts raw image bytes into a GdkPixbuf object.
+    GdkPixbuf is the standard image representation in GTK for rendering.
+    """
     loader = GdkPixbuf.PixbufLoader.new()
     try:
         loader.write(image_bytes)
         loader.close()
         pixbuf = loader.get_pixbuf()
-        if pixbuf is None: raise RuntimeError("GTK hasn't been able to decipher the images.")
+        if pixbuf is None:
+            raise RuntimeError("GTK was unable to decode the image data.")
         return pixbuf.copy()
     finally:
-        try: loader.close()
-        except: pass
+        try:
+            loader.close()
+        except:
+            pass
 
 def fit_pixbuf(pixbuf, max_width=1400, max_height=850):
+    """
+    Scales the image to fit within the specified maximum dimensions while
+    maintaining the original aspect ratio. Uses bilinear interpolation for
+    better downscaling quality.
+    """
     width, height = pixbuf.get_width(), pixbuf.get_height()
-    if width <= max_width and height <= max_height: return pixbuf
+    if width <= max_width and height <= max_height:
+        return pixbuf
+
     scale = min(max_width / width, max_height / height)
-    return pixbuf.scale_simple(max(1, int(width * scale)), max(1, int(height * scale)), GdkPixbuf.InterpType.BILINEAR)
+    return pixbuf.scale_simple(
+        max(1, int(width * scale)),
+        max(1, int(height * scale)),
+        GdkPixbuf.InterpType.BILINEAR
+    )
 
 
 class ImageViewer:
@@ -49,10 +68,13 @@ class ImageViewer:
         auto_reload=False,
         timer_seconds=30,
     ):
+        # Application state initialization
         self.source = source
         self.current_image = None
         self.current_pixbuf = None
         self.original_pixbuf = None
+
+        # Concurrency and UI state flags
         self.is_fullscreen = False
         self.closed = False
         self.worker_running = False
@@ -67,6 +89,7 @@ class ImageViewer:
             "categories": list(initial_categories or []),
         }
 
+        # Main window setup
         self.window = Gtk.Window(title=f"{APP_NAME} - {SOURCES[source].name}")
         self.window.set_default_size(1100, 800)
         self.window.set_position(Gtk.WindowPosition.CENTER)
@@ -74,19 +97,20 @@ class ImageViewer:
         self.window.connect("key-press-event", self.on_key_press)
         self.window.connect("configure-event", self.on_window_configure)
 
+        # Root container (vertical layout)
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         root.set_border_width(8)
         self.root = root
         self.window.add(root)
 
         # -------------------------------------------------------
-        # Top controls : source selector + reload/autoreload
+        # Top controls: source selector & reload/autoreload UI
         # -------------------------------------------------------
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         self.top_controls = top
         root.pack_start(top, False, False, 0)
 
-        top.pack_start(Gtk.Label(label="Source :"), False, False, 0)
+        top.pack_start(Gtk.Label(label="Source:"), False, False, 0)
 
         self.source_combo = Gtk.ComboBoxText()
         for key, spec in SOURCES.items():
@@ -99,7 +123,7 @@ class ImageViewer:
         self.reload_button.connect("clicked", self.on_reload_clicked)
         top.pack_start(self.reload_button, False, False, 0)
 
-        self.fullscreen_button = Gtk.Button(label="Plein écran")
+        self.fullscreen_button = Gtk.Button(label="Fullscreen")
         self.fullscreen_button.connect("clicked", self.on_fullscreen_clicked)
         top.pack_start(self.fullscreen_button, False, False, 0)
 
@@ -108,7 +132,7 @@ class ImageViewer:
         self.auto_check.connect("toggled", self.on_autoreload_toggled)
         top.pack_start(self.auto_check, False, False, 0)
 
-        top.pack_start(Gtk.Label(label="Timer (s) :"), False, False, 0)
+        top.pack_start(Gtk.Label(label="Timer (s):"), False, False, 0)
 
         adjustment = Gtk.Adjustment(
             value=max(1, timer_seconds),
@@ -122,15 +146,15 @@ class ImageViewer:
         self.timer_spin.connect("value-changed", self.on_timer_changed)
         top.pack_start(self.timer_spin, False, False, 0)
 
-        self.download_button = Gtk.Button(label="Télécharger")
+        self.download_button = Gtk.Button(label="Download")
         self.download_button.set_sensitive(False)
         self.download_button.connect("clicked", self.on_download_clicked)
         top.pack_end(self.download_button, False, False, 0)
 
         # -------------------------------------------------------
-        # Source-specific filters
+        # Source-specific filters frame
         # -------------------------------------------------------
-        self.options_frame = Gtk.Frame(label="Options de la source")
+        self.options_frame = Gtk.Frame(label="Source Options")
         root.pack_start(self.options_frame, False, False, 0)
 
         self.options_box = Gtk.Box(
@@ -141,7 +165,7 @@ class ImageViewer:
         self.options_frame.add(self.options_box)
 
         # -------------------------------------------------------
-        # Notebook
+        # Main content area (Notebook for tabs)
         # -------------------------------------------------------
         self.notebook = Gtk.Notebook()
         root.pack_start(self.notebook, True, True, 0)
@@ -168,13 +192,13 @@ class ImageViewer:
         self.image.set_valign(Gtk.Align.CENTER)
         self.image_page.pack_start(self.image, True, True, 0)
 
-        self.status = Gtk.Label(label="Prêt.")
+        self.status = Gtk.Label(label="Ready.")
         self.status.set_xalign(0)
         self.status.set_line_wrap(True)
         self.image_page.pack_start(self.status, False, False, 0)
 
         # -------------------------------------------------------
-        # Tags tab: created once but inserted/removed dynamically.
+        # Tags tab (dynamically inserted/removed based on source)
         # -------------------------------------------------------
         self.tags_page = Gtk.Box(
             orientation=Gtk.Orientation.VERTICAL,
@@ -183,14 +207,14 @@ class ImageViewer:
         self.tags_page.set_border_width(12)
 
         tag_hint = Gtk.Label(
-            label="Tags de recherche. Utilisez des guillemets pour un tag contenant des espaces."
+            label="Search tags. Use quotes for a tag containing spaces."
         )
         tag_hint.set_xalign(0)
         self.tags_page.pack_start(tag_hint, False, False, 0)
 
         self.tags_entry = Gtk.Entry()
         self.tags_entry.set_placeholder_text(
-            'ex. 1girl blue_eyes   |   "gothic lolita"'
+            'e.g., 1girl blue_eyes   |   "gothic lolita"'
         )
         if initial_tags:
             self.tags_entry.set_text(shlex.join(initial_tags))
@@ -203,7 +227,7 @@ class ImageViewer:
         )
         self.tags_page.pack_start(tag_actions, False, False, 0)
 
-        self.tags_reload_button = Gtk.Button(label="Appliquer et Reload")
+        self.tags_reload_button = Gtk.Button(label="Apply and Reload")
         self.tags_reload_button.connect(
             "clicked", self.on_reload_clicked
         )
@@ -211,7 +235,7 @@ class ImageViewer:
             self.tags_reload_button, False, False, 0
         )
 
-        self.tags_clear_button = Gtk.Button(label="Effacer")
+        self.tags_clear_button = Gtk.Button(label="Clear")
         self.tags_clear_button.connect("clicked", self.on_tags_clear)
         tag_actions.pack_start(
             self.tags_clear_button, False, False, 0
@@ -227,7 +251,7 @@ class ImageViewer:
         self.tags_page_position = -1
 
         # -------------------------------------------------------
-        # Initial state
+        # Initial GUI state rendering
         # -------------------------------------------------------
         self.rebuild_source_options(reset=False)
         self.update_tags_tab()
@@ -240,7 +264,7 @@ class ImageViewer:
             self.restart_autoreload_timer()
 
     # -----------------------------------------------------------
-    # Source / option handling
+    # Source / Option Handling
     # -----------------------------------------------------------
 
     def on_source_changed(self, combo):
@@ -255,9 +279,9 @@ class ImageViewer:
         self.rebuild_source_options(reset=True)
         self.update_tags_tab()
 
-        # Si une requête de l'ancienne source tourne encore, on l'invalide.
-        # Son résultat sera ignoré et une nouvelle requête sera lancée
-        # dès que l'ancien worker aura terminé.
+        # If an active request is running for the previous source, invalidate it.
+        # Its result will be dropped in _fetch_success/_fetch_error, and a
+        # new request will automatically trigger.
         if self.worker_running:
             self.pending_reload = True
             self.next_request_id += 1
@@ -275,8 +299,8 @@ class ImageViewer:
         box.pack_start(label, False, False, 0)
 
         combo = Gtk.ComboBoxText()
-        for item_id, label_text in values:
-            combo.append(item_id, label_text)
+        for item_id, item_label in values:
+            combo.append(item_id, item_label)
 
         if active_id not in [item_id for item_id, _ in values]:
             active_id = values[0][0]
@@ -289,8 +313,8 @@ class ImageViewer:
     def rebuild_source_options(self, reset=True):
         self.clear_box(self.options_box)
 
-        # Lors d'un changement de source, on revient aux valeurs par défaut
-        # de cette source. Lors de l'initialisation, on conserve les options CLI.
+        # Reset options to their defaults on source change.
+        # Initial load keeps CLI arguments (reset=False).
         if reset:
             self.last_options["content"] = "sfw"
             self.last_options["purity"] = "sfw"
@@ -299,25 +323,25 @@ class ImageViewer:
 
         if self.source == "nasa":
             label = Gtk.Label(
-                label="Aucune option de filtre pour NASA APOD."
+                label="No filter options available for NASA APOD."
             )
             label.set_xalign(0)
             self.options_box.pack_start(label, False, False, 0)
 
         elif self.source == "waifu":
             self.content_combo = self.add_labeled_combo(
-                "Contenu :",
+                "Content:",
                 [
                     ("sfw", "SFW"),
                     ("nsfw", "NSFW"),
-                    ("all", "Tout"),
+                    ("all", "All"),
                 ],
                 self.last_options["content"],
             )
 
         elif self.source == "wallhaven":
             self.purity_combo = self.add_labeled_combo(
-                "Purity :",
+                "Purity:",
                 [(key, key.upper()) for key in WALLHAVEN_PURITY],
                 self.last_options["purity"],
             )
@@ -327,7 +351,7 @@ class ImageViewer:
                 spacing=8,
             )
             categories_box.pack_start(
-                Gtk.Label(label="Catégories :"),
+                Gtk.Label(label="Categories:"),
                 False,
                 False,
                 0,
@@ -350,19 +374,19 @@ class ImageViewer:
 
         elif self.source == "danbooru":
             self.rating_combo = self.add_labeled_combo(
-                "Rating :",
+                "Rating:",
                 [
                     ("safe", "Safe"),
                     ("questionable", "Questionable"),
                     ("explicit", "Explicit"),
-                    ("all", "Tout"),
+                    ("all", "All"),
                 ],
                 self.last_options["rating"],
             )
 
         elif self.source == "nekos":
             self.content_combo = self.add_labeled_combo(
-                "Contenu :",
+                "Content:",
                 [
                     ("sfw", "SFW"),
                     ("nsfw", "NSFW"),
@@ -396,30 +420,29 @@ class ImageViewer:
 
         messages = {
             "wallhaven": (
-                "Wallhaven : Multiples Tags are possible. "
-                "Multiples purity here : SFW, Sketchy ou SFW+Sketchy."
+                "Wallhaven: Multiple tags supported. "
+                "Purity combinations can be used (e.g., SFW, Sketchy, or SFW+Sketchy)."
             ),
             "danbooru": (
-                "Danbooru : Tags are send in the tags parameter. "
-                "Two user tags maximum."
+                "Danbooru: Tags are appended to the query parameters. "
+                "Maximum of two user tags allowed."
             ),
             "nekos": (
-                "Nekos.moe : Tgs are send as a list. "
-                'For a tags with spaces use quotation mark'
+                "Nekos.moe: Tags are sent as a list. "
+                'For multi-word tags, ensure you use quotation marks.'
             ),
         }
         self.tags_help.set_text(messages.get(self.source, ""))
 
     # -----------------------------------------------------------
-    # Current filters
+    # Filter Retrieval
     # -----------------------------------------------------------
 
     def get_tags(self):
         """
-        Parse les tags en respectant les tags multi-mots.
-
-        Les guillemets servent uniquement au champ de saisie et ne sont
-        pas envoyés aux APIs.
+        Parses tags securely via shlex to support multi-word strings.
+        Quotation marks group words in the UI but are stripped before
+        the API request.
         """
         text = self.tags_entry.get_text().strip()
         if not text:
@@ -429,7 +452,7 @@ class ImageViewer:
             tags = shlex.split(text, comments=False, posix=True)
         except ValueError as exc:
             raise ValueError(
-                "Tags syntaxe invalide, verify quotation mark. "
+                "Invalid tag syntax, verify quotation marks. "
                 f"({exc})"
             ) from exc
 
@@ -448,8 +471,7 @@ class ImageViewer:
         return self.get_tags(), content, purity, rating, categories
 
     def on_filter_control_changed(self, _widget):
-        # Un changement de filtre recharge immédiatement l'image.
-        # Pour les tags, le bouton/Entrée sert de validation explicite.
+        # Trigger an immediate image reload when a dropdown/checkbox filter changes.
         if not self.closed and not self.worker_running:
             self.reload()
 
@@ -461,13 +483,18 @@ class ImageViewer:
         self.reload()
 
     # -----------------------------------------------------------
-    # Loading
+    # Asynchronous Data Loading
     # -----------------------------------------------------------
 
     def on_reload_clicked(self, _button):
         self.reload()
 
     def reload(self):
+        """
+        Initiates the image fetch protocol.
+        Network operations block execution, so they are offloaded to a separate
+        daemon thread to keep the GTK main loop responsive.
+        """
         if self.closed or self.worker_running:
             return
 
@@ -475,7 +502,7 @@ class ImageViewer:
         self.reload_button.set_sensitive(False)
         self.download_button.set_sensitive(False)
         self.status.set_text(
-            f"Chargement depuis {SOURCES[self.source].name}…"
+            f"Loading from {SOURCES[self.source].name}..."
         )
 
         self.next_request_id += 1
@@ -484,6 +511,7 @@ class ImageViewer:
 
         tags, content, purity, rating, categories = self.get_filters()
 
+        # Threading is critical here for application responsiveness
         thread = threading.Thread(
             target=self._fetch_worker,
             args=(
@@ -509,6 +537,11 @@ class ImageViewer:
         rating,
         categories,
     ):
+        """
+        Background worker handling HTTP requests.
+        UI updates from background threads cause GTK crashes. GLib.idle_add
+        queues the success/error callback to execute safely on the main thread.
+        """
         try:
             spec = SOURCES[source]
             image_url, title, metadata = spec.function(
@@ -530,6 +563,7 @@ class ImageViewer:
                 metadata=metadata,
             )
 
+            # Delegate UI updates back to the GTK main loop
             GLib.idle_add(
                 self._fetch_success,
                 request_id,
@@ -548,9 +582,8 @@ class ImageViewer:
         if self.closed:
             return False
 
+        # Guard clause handling race conditions when rapidly changing sources.
         if request_id != self.active_request_id:
-            # Résultat obsolète : on libère le worker puis on relance
-            # éventuellement la requête demandée après un changement de source.
             self.worker_running = False
             if self.pending_reload and not self.closed:
                 self.pending_reload = False
@@ -602,7 +635,7 @@ class ImageViewer:
             self.reload_button.set_sensitive(True)
             self.download_button.set_sensitive(False)
             self.status.set_text(
-                f"Erreur de décodage : {exc}"
+                f"Decoding error: {exc}"
             )
 
         return False
@@ -626,16 +659,15 @@ class ImageViewer:
         self.reload_button.set_sensitive(True)
         self.download_button.set_sensitive(False)
         self.status.set_text(
-            f"Erreur {SOURCES[source].name} : {message}"
+            f"Error {SOURCES[source].name}: {message}"
         )
         return False
 
     def update_display_pixbuf(self):
-        """Render the original image to the current window size.
-
-        In fullscreen, the available area is larger; autoreload continues
-        independently because it is driven by the GTK timeout and worker
-        thread, not by this rendering function.
+        """
+        Dynamically renders the image relying on window dimensions.
+        In fullscreen mode, the allocation area expands natively without
+        interrupting the background autoreload loops.
         """
         if self.original_pixbuf is None:
             return
@@ -648,7 +680,7 @@ class ImageViewer:
             width = 1400
             height = 850
 
-        # Reserve a small margin around the image.
+        # Preserve a margin to avoid triggering layout loop recursions
         width = max(100, width - 16)
         height = max(100, height - 16)
 
@@ -664,51 +696,51 @@ class ImageViewer:
         self.toggle_fullscreen()
 
     def toggle_fullscreen(self):
-        """Toggle image fullscreen without stopping autoreload."""
+        """Toggles fullscreen state without halting background tasks."""
         if self.closed:
             return
 
         self.is_fullscreen = not self.is_fullscreen
 
         if self.is_fullscreen:
-            # Keep the image page visible, but remove the UI chrome.
+            # Hide the UI chrome to prioritize the image content
             self.top_controls.hide()
             self.options_frame.hide()
             self.notebook.set_show_tabs(False)
             self.status.hide()
             self.window.fullscreen()
-            self.fullscreen_button.set_label("Quitter plein écran")
+            self.fullscreen_button.set_label("Exit Fullscreen")
         else:
             self.window.unfullscreen()
             self.notebook.set_show_tabs(True)
             self.top_controls.show()
             self.options_frame.show()
             self.status.show()
-            self.fullscreen_button.set_label("Plein écran")
+            self.fullscreen_button.set_label("Fullscreen")
 
         GLib.idle_add(self.update_display_pixbuf)
 
-    def on_key_press(window, event):
+    def on_key_press(self, widget, event):
         """
-        Gestion des raccourcis clavier.
+        Keyboard shortcut listener.
+        Note: The method signature requires 'self, widget, event' to properly
+        bind to a GTK instance callback.
 
-        F11   : entrer / sortir du plein écran
-        Escape: quitter le plein écran
+        F11   : Toggle fullscreen
+        Escape: Exit fullscreen
         """
-
         key = Gdk.keyval_name(event.keyval)
 
         if key == "F11":
-            if window.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
-                window.unfullscreen()
+            if self.window.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+                self.window.unfullscreen()
             else:
-                window.fullscreen()
-
+                self.window.fullscreen()
             return True
 
         if key == "Escape":
-            if window.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
-                window.unfullscreen()
+            if self.window.get_window().get_state() & Gdk.WindowState.FULLSCREEN:
+                self.window.unfullscreen()
                 return True
 
         return False
@@ -719,14 +751,14 @@ class ImageViewer:
         return False
 
     # -----------------------------------------------------------
-    # Autoreload
+    # Autoreload Timer Management
     # -----------------------------------------------------------
 
     def on_autoreload_toggled(self, _button):
         self.restart_autoreload_timer()
         if self.auto_check.get_active():
             self.status.set_text(
-                f"Autoreload activé — toutes les "
+                f"Autoreload enabled — every "
                 f"{int(self.timer_spin.get_value())} s."
             )
 
@@ -752,8 +784,7 @@ class ImageViewer:
         if self.closed or not self.auto_check.get_active():
             return False
 
-        # Si un précédent chargement est encore en cours, on ne lance
-        # pas une seconde requête. La prochaine échéance reprendra le relais.
+        # Drop execution if the previous fetch thread is still active.
         if not self.worker_running:
             self.reload()
 
@@ -765,7 +796,7 @@ class ImageViewer:
         return False
 
     # -----------------------------------------------------------
-    # Download
+    # Download Handling
     # -----------------------------------------------------------
 
     def suggest_filename(self):
@@ -806,7 +837,7 @@ class ImageViewer:
             return
 
         dialog = Gtk.FileChooserDialog(
-            title="Enregistrer l'image",
+            title="Save Image",
             parent=self.window,
             action=Gtk.FileChooserAction.SAVE,
         )
@@ -834,15 +865,15 @@ class ImageViewer:
             with open(path, "wb") as file:
                 file.write(self.current_image.data)
             self.status.set_text(
-                f"Image enregistrée : {path}"
+                f"Image saved: {path}"
             )
         except OSError as exc:
             self.status.set_text(
-                f"Erreur d'enregistrement : {exc}"
+                f"Save error: {exc}"
             )
 
     # -----------------------------------------------------------
-    # Close
+    # Application Teardown
     # -----------------------------------------------------------
 
     def on_destroy(self, _window):
@@ -856,4 +887,6 @@ class ImageViewer:
         self.current_pixbuf = None
         self.original_pixbuf = None
         self.active_request_id = -1
+
+        # Kill the main event loop, allowing the process to gracefully exit
         Gtk.main_quit()
