@@ -16,7 +16,7 @@ from models import ImageData
 from network import http_get_bytes
 from sources import SOURCES, WALLHAVEN_PURITY
 
-APP_NAME = "Random Image Viewer"
+APP_NAME = "Random Wallpaper Viewer"
 
 def pixbuf_from_bytes(image_bytes):
     loader = GdkPixbuf.PixbufLoader.new()
@@ -24,7 +24,7 @@ def pixbuf_from_bytes(image_bytes):
         loader.write(image_bytes)
         loader.close()
         pixbuf = loader.get_pixbuf()
-        if pixbuf is None: raise RuntimeError("GTK n'a pas pu décoder l'image.")
+        if pixbuf is None: raise RuntimeError("GTK hasn't been able to decipher the images.")
         return pixbuf.copy()
     finally:
         try: loader.close()
@@ -395,20 +395,17 @@ class ImageViewer:
             return
 
         messages = {
-            "waifu": (
-                "Waifu.im : chaque tag devient un paramètre IncludedTags. "
-            ),
             "wallhaven": (
-                "Wallhaven : plusieurs tags sont possibles. "
-                "Purity disponible ici : SFW, Sketchy ou SFW+Sketchy."
+                "Wallhaven : Multiples Tags are possible. "
+                "Multiples purity here : SFW, Sketchy ou SFW+Sketchy."
             ),
             "danbooru": (
-                "Danbooru : les tags sont envoyés dans le paramètre tags. "
-                "Les tags utilisateur restent limités à deux."
+                "Danbooru : Tags are send in the tags parameter. "
+                "Two user tags maximum."
             ),
             "nekos": (
-                "Nekos.moe : les tags sont envoyés comme liste. "
-                'Pour un tag avec espaces, utilisez des guillemets'
+                "Nekos.moe : Tgs are send as a list. "
+                'For a tags with spaces use quotation mark'
             ),
         }
         self.tags_help.set_text(messages.get(self.source, ""))
@@ -432,7 +429,7 @@ class ImageViewer:
             tags = shlex.split(text, comments=False, posix=True)
         except ValueError as exc:
             raise ValueError(
-                "Syntaxe des tags invalide. Vérifiez les guillemets. "
+                "Tags syntaxe invalide, verify quotation mark. "
                 f"({exc})"
             ) from exc
 
