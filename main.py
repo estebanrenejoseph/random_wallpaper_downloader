@@ -12,7 +12,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import Gtk
 
 from gui import ImageViewer
-
+from sources import SOURCES
+default_source = next(iter(SOURCES.keys())) if SOURCES else "fallback"
 
 def main() -> int:
     """Instantiates the GUI viewer and starts the GTK main event loop.
@@ -21,7 +22,7 @@ def main() -> int:
         int: Process exit status code (0 for clean execution).
     """
     viewer = ImageViewer(
-        source="nasa", # Source by default at launch is arbitrary nasa
+        source=default_source,
         initial_tags=None,
         initial_content="sfw",
         initial_purity="sfw",

@@ -41,3 +41,7 @@ class SourceSpec:
     function: Callable[..., Any]
     supports_tags: bool
     description: str
+    content_options: Optional[List[Tuple[str, str]]] = None
+    purity_options: Optional[List[Tuple[str, str]]] = None
+    rating_options: Optional[List[Tuple[str, str]]] = None
+    category_options: Optional[List[Tuple[str, str]]] = None
