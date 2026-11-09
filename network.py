@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional, Tuple
 import requests
 
 HTTP_TIMEOUT: int = 30
-USER_AGENT: str = "random-wallpaper-viewer(local desktop application)"
+USER_AGENT: str = "random-wallpaper-viewer/1.0 (local desktop application)"
 
 
 def http_get_json(

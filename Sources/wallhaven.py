@@ -1,6 +1,5 @@
 # Sources/wallhaven.py
 
-import os
 import random
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -59,10 +58,6 @@ def source_wallhaven(
     if tags:
         params["q"] = _wallhaven_tag_query(tags)
 
-    api_key: Optional[str] = os.getenv("WALLHAVEN_API_KEY")
-    if api_key:
-        params["apikey"] = api_key
-
     data: Any = http_get_json(
         "https://wallhaven.cc/api/v1/search",
         params=params,
@@ -71,7 +66,7 @@ def source_wallhaven(
     if not results:
         raise RuntimeError(
             "Wallhaven found no images matching these criteria. "
-            "Please check your tags, purity settings, categories, or API key."
+            "Please check your tags, purity settings or categories."
         )
 
     item: Dict[str, Any] = random.choice(results)
